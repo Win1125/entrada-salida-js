@@ -43,7 +43,7 @@ function loadEventsFromFile(fileName) {
   });
 }
 
-// Función para manejar el comando 'add'
+// Función para manejar el comando 'add' -> Añade un evento
 function addEvent(eventName) {
   if (!events[eventName]) {
     events[eventName] = [];
@@ -53,7 +53,7 @@ function addEvent(eventName) {
   }
 }
 
-// Función para manejar el comando 'sub'
+// Función para manejar el comando 'sub' -> suscribe el usuario a un evento
 function subscribe(socket, eventName) {
   if (!events[eventName]) {
     socket.write(`El evento "${eventName}" no existe.`);
@@ -72,7 +72,7 @@ function subscribe(socket, eventName) {
   }
 }
 
-// Función para manejar el comando 'list'
+// Función para manejar el comando 'list' -> lisa los clientes suscitos a un evento
 function listClients(socket, eventName) {
   if (eventSubscriptions[eventName]) {
     console.log(`Clientes suscritos a "${eventName}": ${eventSubscriptions[eventName].length}`);
@@ -81,13 +81,69 @@ function listClients(socket, eventName) {
   }
 }
 
-// Función para manejar el comando 'disconnect'
+// Función para manejar el comando 'disconnect' -> desconecta el cliente del servidor
 function disconnectClient(socket) {
   console.log('Cliente desconectado.');
   socket.end();
 
   Object.keys(eventSubscriptions).forEach(event => {
     eventSubscriptions[event] = eventSubscriptions[event].filter(client => client !== socket);
+  });
+}
+
+// Función para manejar el comando 'unsub' -> Desuscribe al cliente de un evento
+function unsubscribe(socket, eventName) {
+  if (!eventSubscriptions[eventName] || eventSubscriptions[eventName].length === 0) {
+    console.log(`El cliente no está suscrito al evento "${eventName}".`);
+    return;
+  }
+
+  const index = eventSubscriptions[eventName].indexOf(socket);
+  if (index !== -1) {
+    eventSubscriptions[eventName].splice(index, 1);
+    console.log(`Cliente se ha desuscrito del evento "${eventName}".`);
+  } else {
+    console.log(`El cliente no está suscrito al evento "${eventName}".`);
+  }
+}
+
+// Función para manejar el comando 'trigger'
+function triggerEventsToClients() {
+  const allEvents = Object.keys(events);
+  if (allEvents.length === 0) {
+    console.log('No hay eventos para desencadenar.');
+    return;
+  }
+
+  const message = 'Eventos disponibles: ' + allEvents.join(', ');
+  broadcast(message);
+}
+
+// Función para enviar un mensaje a todos los clientes conectados
+function broadcast(message) {
+  server.getConnections((error, count) => {
+    if (error) {
+      console.error('Error al obtener las conexiones:', error);
+      return;
+    }
+
+    server.clients.forEach(client => {
+      client.write(message);
+    });
+  });
+}
+
+// Función para manejar el comando 'ask'
+function listAvailableEvents() {
+  const allEvents = Object.keys(events);
+  if (allEvents.length === 0) {
+    console.log('No hay eventos disponibles.');
+    return;
+  }
+
+  console.log('Eventos disponibles:');
+  allEvents.forEach(event => {
+    console.log(`- ${event}`);
   });
 }
 
@@ -111,14 +167,7 @@ function handleCommand(socket, message) {
       console.log(`Evento "${eventName}" eliminado.`);
       break;
     case 'trigger':
-      if (events[eventName]) {
-        events[eventName].forEach(client => {
-          client.write(`Evento "${eventName}" activado.\n`);
-        });
-      }
-      break;
-    case 'sub':
-      subscribe(socket, eventName);
+      triggerEventsToClients();
       break;
     case 'list':
       listClients(socket, eventName);
@@ -135,6 +184,15 @@ function handleCommand(socket, message) {
     case 'load':
       loadEventsFromFile(fileName);
       break;
+    case 'sub':
+      subscribe(socket, eventName);
+      break;
+    case 'unsub':
+      unsubscribe(socket, eventName);
+      break;
+    case 'ask':
+      listAvailableEvents();
+      break;
     case 'clients':
       console.log(`Clientes conectados: ${connectedClients}`);
       break;
@@ -146,6 +204,7 @@ function handleCommand(socket, message) {
   }
 }
 
+// Monta el servidor en un hilo
 server.on('connection', (socket) => {
   console.log('Cliente conectado.');
   connectedClients++;
@@ -166,11 +225,13 @@ server.on('connection', (socket) => {
   });
 });
 
+// Permite capturar los comandos por CMD
 rl.on('line', (input) => {
   const command = input.trim();
   handleCommand(null, command);
 });
 
+// Servidor
 const PORT = 3000;
 server.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
